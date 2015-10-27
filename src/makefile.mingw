@@ -17,7 +17,7 @@
 
 CXX ?= g++
 
-USE_UPNP:=1
+USE_UPNP:=0
 USE_IPV6:=1
 
 DEPSDIR?=/c/deps
