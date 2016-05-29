@@ -16,6 +16,9 @@ Release Process
 ###write release notes. git shortlog helps a lot, for example:
 
 	git shortlog --no-merges v(current version, e.g. 0.7.2)..v(new version, e.g. 0.8.0)
+	or alternatively
+	git log --pretty=format:"%h - %an, %ar : %s" v(current version, e.g. 1.4.1)..v(new version, e.g. 2.0.0) > git.log
+
 
 * * *
 

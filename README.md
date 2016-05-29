@@ -1,26 +1,47 @@
-Bitcoin Core integration/staging tree
+Reddcoin Core integration/staging tree
 =====================================
 
-http://www.bitcoin.org
+http://www.reddcoin.com
 
-Copyright (c) 2009-2015 Bitcoin Core Developers
+Copyright (c) 2009-2016 Bitcoin Core Developers
+Copyright (c) 2014-2016 Reddcoin Core Developers
 
-What is Bitcoin?
+What is Reddcoin?
 ----------------
 
-Bitcoin is an experimental new digital currency that enables instant payments to
-anyone, anywhere in the world. Bitcoin uses peer-to-peer technology to operate
+Reddcoin is an experimental new digital currency that enables instant payments to
+anyone, anywhere in the world. Reddcoin uses peer-to-peer technology to operate
 with no central authority: managing transactions and issuing money are carried
-out collectively by the network. Bitcoin Core is the name of open source
+out collectively by the network. Reddcoin Core is the name of open source
 software which enables the use of this currency.
 
+Reddcoin first started in January 2014 as a variant of Litecoin using Scrypt as
+the Proof-of-Work (PoW) hash algorithm.
+ - 1 minute block target
+ - 100,000 coins per block
+ - subsidy halves every 500,000 blocks
+ - subsidy halves every 50,000 blocks starting at block 140,000
+ - difficulty retarget: every block using Kimoto's gravity well
+
+
+On 2nd August 2014 at block 260,800 Reddcoin transitioned to its own original Proof-of-Stake-Velocity (PoSV)
+algorithm which replaced Proof-of-Work (PoW).
+ - 1 minute block target
+ - just under 27 billion mined in PoW phase
+ - 5% annual interest in PoSV phase
+ - difficulty retarget: every block using Kimoto's gravity well
+ - white paper: http://www.reddcoin.com/papers/PoSV.pdf
+ - FAQs paper: http://www.reddcoin.com/papers/PoSV_FAQ.pdf
+
+On February 2016 backported to be derived directly from Bitcoin v0.9 whilst maintaining the original functionality
+
 For more information, as well as an immediately useable, binary version of
-the Bitcoin Core software, see http://www.bitcoin.org/en/download.
+the Reddcoin Core software, see http://www.reddcoin.com
 
 License
 -------
 
-Bitcoin Core is released under the terms of the MIT license. See [COPYING](COPYING) for more
+Reddcoin Core is released under the terms of the MIT license. See [COPYING](COPYING) for more
 information or see http://opensource.org/licenses/MIT.
 
 Development process
@@ -29,12 +50,11 @@ Development process
 Developers work in their own trees, then submit pull requests when they think
 their feature or bug fix is ready.
 
-If it is a simple/trivial/non-controversial change, then one of the Bitcoin
+If it is a simple/trivial/non-controversial change, then one of the Reddcoin
 development team members simply pulls it.
 
 If it is a *more complicated or potentially controversial* change, then the patch
-submitter will be asked to start a discussion (if they haven't already) on the
-[mailing list](http://sourceforge.net/mailarchive/forum.php?forum_name=bitcoin-development).
+submitter will be asked to start a discussion (if they haven't already) on the relevant forum channel.
 
 The patch will be accepted if there is broad consensus that it is a good thing.
 Developers should expect to rework and resubmit patches if the code doesn't
@@ -42,7 +62,7 @@ match the project's coding conventions (see [doc/coding.md](doc/coding.md)) or a
 controversial.
 
 The `master` branch is regularly built and tested, but is not guaranteed to be
-completely stable. [Tags](https://github.com/bitcoin/bitcoin/tags) are created
+completely stable. [Tags](https://github.com/reddcoin-project/reddcoin/tags) are created
 regularly to indicate new official, stable release versions of Bitcoin.
 
 Testing
@@ -58,7 +78,7 @@ lots of money.
 Developers are strongly encouraged to write unit tests for new code, and to
 submit new unit tests for old code. Unit tests can be compiled and run (assuming they weren't disabled in configure) with: `make check`
 
-Every pull request is built for both Windows and Linux on a dedicated server,
+Every pull request is built for Windows, Linux and OSx on a dedicated server,
 and unit and sanity tests are automatically run. The binaries produced may be
 used for manual QA testing — a link to them will appear in a comment on the
 pull request posted by [BitcoinPullTester](https://github.com/BitcoinPullTester). See https://github.com/TheBlueMatt/test-scripts
@@ -103,7 +123,7 @@ to see it.
 
 **testnet and regtest modes**
 
-Run with the -testnet option to run with "play bitcoins" on the test network, if you
+Run with the -testnet option to run with "play reddcoins" on the test network, if you
 are testing multi-machine code that needs to operate across the internet.
 
 If you are testing something that can run on one machine, run with the -regtest option.
@@ -112,7 +132,7 @@ that run in -regest mode.
 
 **DEBUG_LOCKORDER**
 
-Bitcoin Core is a multithreaded application, and deadlocks or other multithreading bugs
+Reddcoin Core is a multithreaded application, and deadlocks or other multithreading bugs
 can be very difficult to track down. Compiling with -DDEBUG_LOCKORDER (configure
 CXXFLAGS="-DDEBUG_LOCKORDER -g") inserts run-time checks to keep track of what locks
 are held, and adds warning to the debug.log file if inconsistencies are detected.
