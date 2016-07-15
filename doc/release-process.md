@@ -188,9 +188,9 @@ Hash: SHA256
 ...
 ```
 
-- Upload zips and installers, as well as `SHA256SUMS.asc` from last step, to the reddcoin.org server
+- Upload zips and installers, as well as `SHA256SUMS.asc` from last step, to the reddcoin.com server
 
-- Update reddcoin.org version
+- Update reddcoin.com version
 
   - Make a pull request to add a file named `YYYY-MM-DD-vX.Y.Z.md` with the release notes
   to https://github.com/bitcoin/bitcoin.org/tree/master/_releases
@@ -201,15 +201,13 @@ Hash: SHA256
 
 - Announce the release:
 
-  - Release sticky on bitcointalk: https://bitcointalk.org/index.php?board=1.0
+  - Release sticky on reddcointalk: https://www.reddcointalk.org/category/1/announcements
 
-  - Bitcoin-development mailing list
+  - Reddheads mailing list
 
   - Update title of #bitcoin on Freenode IRC
 
-  - Optionally reddit /r/Bitcoin, ... but this will usually sort out itself
-
-- Notify BlueMatt so that he can start building [https://launchpad.net/~bitcoin/+archive/ubuntu/bitcoin](the PPAs)
+  - Reddit /r/Reddcoin,
 
 - Add release notes for the new version to the directory `doc/release-notes` in git master
 

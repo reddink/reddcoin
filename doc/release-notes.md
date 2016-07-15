@@ -2,8 +2,12 @@ Reddcoin Core version 2.0.0 is now available from:
 
   https://wallet.reddcoin.com/
 
-This is a new major version release, bringing only bug fixes and updated
-translations. Upgrading to this release is recommended.
+This is a new major version release of Reddcoin,
+Previously, the original and sunsequent versions of Reddcoin were taken from a fork of Litecoin.
+With the release of Reddcoin V2.0.0, is now based directly from a fork Bitcoin.
+This allows for better source control and feature implementaion from upstream changes
+
+Upgrading to this release is recommended.
 
 Please report bugs using the issue tracker at github:
 
@@ -12,27 +16,31 @@ Please report bugs using the issue tracker at github:
 How to Upgrade
 ===============
 
-If you are running an older version, shut it down. Wait until it has completely
+If you are running an older version of Reddcoin, shut it down. Wait until it has completely
 shut down (which might take a few minutes for older versions), then run the
 installer (on Windows) or just copy over /Applications/Reddcoin-Qt (on Mac) or
 reddcoind/reddcoin-qt (on Linux).
 
+Start wallet
+
 Notable changes
 ================
+
+Core base code
+------------------------------------
+
+Reddcoin v2.0.0.0 was forked from Bitcoin v0.9.5
 
 Staking and relay policy enhancements
 ------------------------------------
 
-<Needs reworking>
-Reddcoin Core's block templates are now for version 4 blocks only, and any staking
-wallets relying on its `getblocktemplate` must be updated in parallel to use
-libblkmaker either version 0.4.2 or any version from 0.5.1 onward.
-If you are solo mining, this will affect you the moment you upgrade Bitcoin
-Core, which must be done prior to BIP66 achieving its 951/1001 status.
-If you are mining with the stratum mining protocol: this does not affect you.
-If you are mining with the getblocktemplate protocol to a pool: this will affect
-you at the pool operator's discretion, which must be no later than BIP66
-achieving its 5202/7200 status (85%).
+To implement BIP66, Reddcoin Core's block templates are now for version 4 blocks only.
+When BIP66 concensus (Supermajority 6120/7200) is reached, only v4 blocks will be accepted by the network.
+and any staking
+
+OP_Return and data in the blockchain
+------------------------------------
+Reddcoin allows storing 80bytes of arbitary data in the blockchain
 
 2.0.0 changelog
 ================
@@ -88,7 +96,7 @@ achieving its 5202/7200 status (85%).
 Credits
 --------
 
-Thanks to who contributed to testing this release, at least:
+Thanks to everyone who contributed to testing and feedback for this release, notably:
 
 - @reddibrek
 - @henry
