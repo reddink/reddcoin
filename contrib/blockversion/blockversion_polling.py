@@ -131,9 +131,9 @@ def get_blocks(settings):
 				cur.execute("SELECT BLOCK FROM blocks LEFT OUTER JOIN blockversion ON blocks.BLOCK = blockversion.HEIGHT WHERE blocks.BLOCK > ( SELECT MAX(blockversion.HEIGHT) FROM blockversion )") 
 				blockdata = cur.fetchall()
 
-				if blockdata is None:
+				if len(blockdata) == 0:
 					print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " No block details in blockversion"
-                    print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " Calculating block count for block = " + repr(height)
+                                        print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " Calculating block count for block = " + repr(height)
 
 					# get version count
 					cur.execute("SELECT version, count(*) FROM blocks WHERE BLOCK <= " + repr(height) + " GROUP BY version ORDER BY version ASC")
@@ -151,14 +151,15 @@ def get_blocks(settings):
 						elif row[0] == 4: ver4count = row[1]
 
 
-					print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " Inserting block count for block = " + repr(block[0])
+					print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " Inserting block count for block = " + repr(height)
 					cur.execute('INSERT INTO blockversion VALUES (?,?,?,?,?,?)', (None, height, ver1count, ver2count, ver3count, ver4count))
 					conn.commit()
 
 				else:
+                                        #print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " Calculating block count for block = " + repr(blockdata)
 
 					for block in blockdata:
-						print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " Calculating block count for block = " + repr(block[0])
+						#print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " Calculating block count for block = " + repr(block[0])
 
 						# get version count
 						cur.execute("SELECT version, count(*) FROM blocks WHERE BLOCK <= " + repr(block[0]) + " GROUP BY version ORDER BY version ASC")
@@ -176,7 +177,7 @@ def get_blocks(settings):
 							elif row[0] == 4: ver4count = row[1]
 
 
-						print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " Inserting block count for block = " + repr(block[0])
+						#print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " Inserting block count for block = " + repr(block[0])
 						cur.execute('INSERT INTO blockversion VALUES (?,?,?,?,?,?)', (None, block[0], ver1count, ver2count, ver3count, ver4count))
 						conn.commit()
 
