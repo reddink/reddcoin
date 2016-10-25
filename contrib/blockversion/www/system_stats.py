@@ -125,9 +125,6 @@ def version():
     resp['blocks'] = newdata[7200-1]
 
     """
-
-
-    #return template('<p>System Version: {{version}}.</p>', version=data[1])
     return json.dumps(newdata)
 @app.route('/api/difficulty', method='GET')
 def version():
