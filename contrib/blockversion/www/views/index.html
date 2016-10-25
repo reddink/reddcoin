@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Reddcoin Blockchain Technology - Serving Your Identity with your Blockchain</title>
+    <meta name="description" content="Reddcoin is a community building decentralized applications, and a software stack around decentralized DNS, identity and more for blockchain applications.">
+    <!-- Open Graph data -->
+    <meta property="og:title" content="Reddcoin Block metrics">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://redd.ink/">
+    <meta property="og:image" content="https://redd.ink/images/metatags/reddink-screenshot.png">
+    <meta property="og:description" content="Reddcoin is a community building decentralized applications, and a software stack around decentralized DNS, identity and more for blockchain applications.">
+    
+    <link rel="icon" type="image/png" href="favicon.png"/>
+    <link rel="shortcut icon" href="favicon.ico"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="bootstrap.min.css">
+    <script src="jquery-3.1.1.min.js"></script>
+    <script src="highcharts.js"></script>
+    <script src="bootstrap.min.js"></script>
+    <link type="text/css" rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+  % include('head_nav.tpl')
+
+  
+
+  <div class="container text-center">
+  <h2>Live</h2>
+  <h3>BIP66 block version</h3>
+    <div id="container_dy" style="width:100%; height:400px;"></div>
+  <h3>Block Difficulty</h3>
+    <div id="container_diff" style="width:100%; height:400px;"></div>
+
+  
+  <footer class="text-center">
+    <a class="up-arrow" href="#myPage" data-toggle="tooltip" title="TO TOP">
+      <span class="glyphicon glyphicon-chevron-up"></span>
+    </a><br><br>
+
+  </footer>
+
+  </body>
+</html>
+<script type="text/javascript">
+
+var dynChart;
+var diffChart;
+
+/**
+ * Request data from the server, add it to the graph and set a timeout 
+ * to request again
+ */
+function requestDiffData() {
+    $.ajax({
+        url: '/api/difficulty',
+        dataType: "json",
+        success: function(data) {
+            var series = diffChart.series[0],
+                shift = series.data.length > 7200; // shift if the series is 
+                                                 // longer than 20
+
+            // add the point
+            //dynChart.series[0].addPoint(data, true, shift);
+            diffChart.series[0].setData(data, true)
+            
+            // call it again after sixty second
+            setTimeout(requestDiffData, 60000);    
+        },
+        cache: false
+    });
+}
+
+function requestData() {
+    $.ajax({
+        url: '/api/blockversion',
+        dataType: "json",
+        success: function(data) {
+            var series = dynChart.series[0],
+                shift = series.data.length > 7200; // shift if the series is 
+                                                 // longer than 20
+
+            // add the point
+            //dynChart.series[0].addPoint(data, true, shift);
+            dynChart.series[0].setData(data, true)
+            
+            // call it again after sixty second
+            setTimeout(requestData, 60000);    
+        },
+        cache: false
+    });
+}
+
+$(document).ready(function() {
+    dynChart = new Highcharts.Chart({
+        chart: {
+            renderTo: 'container_dy',
+            type: 'line',
+            zoomType: 'x',
+            events: {
+                load: requestData
+            }
+        },
+        title: {
+            text: 'Reddcoin BIP66 v4 Progress'
+        },
+        xAxis: {
+            title: {
+                text: 'Blocks'
+            },
+            labels: {
+              format: '{value:,.0f}'
+            }
+        },
+        yAxis: {
+            title: {
+                text: 'Percent'
+            }
+        },
+        series: [{
+            name: 'Percent',
+            data: requestData,
+                tooltip: {
+                    valueDecimals: 2
+                }
+        }],
+        plotOptions: {
+          series: {
+            turboThreshold: 0
+          }
+        }
+    });
+
+    diffChart = new Highcharts.Chart({
+        chart: {
+            renderTo: 'container_diff',
+            type: 'line',
+            zoomType: 'x',
+            events: {
+                load: requestDiffData
+            }
+        },
+        title: {
+            text: 'Reddcoin Difficulty'
+        },
+        xAxis: {
+            title: {
+                text: 'Blocks'
+            },
+            labels: {
+              format: '{value:,.0f}'
+            }
+        },
+        yAxis: {
+            title: {
+                text: 'Difficulty'
+            }
+        },
+        series: [{
+            name: 'Difficulty',
+            data: requestDiffData,
+                tooltip: {
+                    valueDecimals: 2
+                }
+        }],
+        plotOptions: {
+          series: {
+            turboThreshold: 0
+          }
+        }
+    });       
+});
+
+</script>
