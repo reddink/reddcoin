@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="bootstrap.min.css">
     <script src="jquery-3.1.1.min.js"></script>
     <script src="highcharts.js"></script>
+    <script src="modules/exporting.js"></script>
     <script src="bootstrap.min.js"></script>
     <link type="text/css" rel="stylesheet" href="style.css" />
   </head>
@@ -96,6 +97,7 @@ $(document).ready(function() {
         chart: {
             renderTo: 'container_dy',
             type: 'line',
+            width: 1010,
             zoomType: 'x',
             events: {
                 load: requestData
@@ -135,6 +137,7 @@ $(document).ready(function() {
         chart: {
             renderTo: 'container_diff',
             type: 'line',
+            width: 1010,
             zoomType: 'x',
             events: {
                 load: requestDiffData
