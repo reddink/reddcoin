@@ -15,6 +15,7 @@ import base64
 import httplib
 import sys
 import sqlite3
+import gc
 from time import gmtime, strftime, localtime, sleep
 
 ERR_SLEEP = 15
@@ -195,6 +196,9 @@ def get_blocks(settings):
 
 
 		max_height = getblockcount(rpc)
+
+		collected = gc.collect()
+		print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " %d garbage objects collected" % (collected) 
 
 	#close DB
 	if conn:
