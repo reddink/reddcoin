@@ -3,6 +3,8 @@ import sys
 import json
 import traceback
 import os
+import gc
+from time import localtime, strftime
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -113,8 +115,8 @@ def version():
 
     newdata = ()
     for i in range (7200,14400):
-        v3begin = (data[i][9] - data[i-7200][9])/7200.0
-        v4begin = (data[i][10] - data[i-7200][10])/7200.0
+        v3begin = ((data[i][9] - data[i-7200][9])/7200.0) * 100
+        v4begin = ((data[i][10] - data[i-7200][10])/7200.0) * 100
         newdata = newdata + ((data[i][1],) + (v4begin,),)
     """
     #print data[0]
@@ -125,6 +127,9 @@ def version():
     resp['blocks'] = newdata[7200-1]
 
     """
+    collected = gc.collect()
+    print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " blockversion: %d garbage objects collected" % (collected)
+		
     return json.dumps(newdata)
 @app.route('/api/difficulty', method='GET')
 def version():
@@ -140,6 +145,9 @@ def version():
     query = "SELECT block, difficulty FROM blocks WHERE BLOCK > " + repr(lastblock - 7200) + " AND BLOCK <= " + repr(lastblock)
     cur.execute (query)
     data = cur.fetchall()
+
+    collected = gc.collect()
+    print strftime("%Y/%m/%d %H:%M:%S", localtime()) + " difficulty: %d garbage objects collected" % (collected)
 
     return json.dumps(data)
 
