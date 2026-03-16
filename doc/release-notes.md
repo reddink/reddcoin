@@ -586,6 +586,16 @@ Wallet
   conflicting with an ordinary spend stays a real conflict and keeps the
   bare message.
 
+- An encrypted wallet with a plain HD seed loads as an HD wallet again. Such
+  a wallet is locked while it loads, so its seed cannot be read then, and
+  reading its HD chain failed with "seed not found": the wallet loaded with
+  the warning that transaction data or address book entries might be missing
+  or incorrect, was no longer an HD wallet, and could not refill its key pool
+  once unlocked. It now loads without the warning, keeps its seed, and
+  derives new keys once it is unlocked. Nothing needs to be done to such a
+  wallet: it loads correctly with this version. Wallets created from a
+  mnemonic, unencrypted wallets and descriptor wallets were not affected.
+
 GUI
 ---
 
