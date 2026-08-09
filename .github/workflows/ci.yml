@@ -67,6 +67,8 @@ jobs:
   # (glibc >= 2.28) runs. bionic (glibc 2.27) can no longer host it.
   lint:
     name: 'lint'
+    # PROBE BRANCH ONLY - DO NOT MERGE: disabled so only TSan runs.
+    if: false
     runs-on: ubuntu-24.04
     container: ubuntu:focal
     timeout-minutes: 20
@@ -114,64 +116,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: 'ARM, unit tests, no functional tests'
-            runner: ubuntu-24.04-arm
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_arm64.sh'
-
-          - name: 'Win64, unit tests, no gui tests, no functional tests'
-            runner: ubuntu-24.04
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_win64.sh'
-
-          - name: '32-bit + dash, gui [CentOS 9]'
-            runner: ubuntu-24.04
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_i686_centos.sh'
-
-          - name: 'previous releases, qt5, DEBUG'
-            runner: ubuntu-24.04
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_native_qt5.sh'
-            releases: true
-
-          - name: 'ASan + LSan + UBSan + integer, no depends'
-            runner: ubuntu-24.04
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_native_asan.sh'
-
+          # PROBE BRANCH ONLY - DO NOT MERGE.
+          # Matrix cut to the TSan task so the clang-18 toolchain change
+          # can be evaluated quickly. Restore the other 10 entries first.
           - name: 'TSan, depends, no gui'
             runner: ubuntu-24.04
             timeout-minutes: 120
             file-env: './ci/test/00_setup_env_native_tsan.sh'
 
-          - name: 'MSan, depends'
-            runner: ubuntu-24.04
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_native_msan.sh'
-
-          - name: 'multiprocess, DEBUG'
-            runner: ubuntu-24.04
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_native_multiprocess.sh'
-
-          - name: 'no wallet'
-            runner: ubuntu-24.04
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_native_nowallet.sh'
-
-          - name: 'macOS 10.14 cross, gui, no tests'
-            runner: ubuntu-24.04
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_mac.sh'
-            sdk: true
-
-          - name: 'ARM64 Android APK'
-            runner: ubuntu-24.04
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_android.sh'
-            sdk: true
-            sources: true
     steps:
       # Default checkout: on a pull_request this is the base-merged-with-head
       # commit, so the build runs against the merge result and surfaces silent
@@ -218,7 +170,8 @@ jobs:
   # the Intel macos-13 image.
   macos-native:
     name: 'macOS 11 native, gui'
-    if: github.event_name != 'schedule'
+    # PROBE BRANCH ONLY - DO NOT MERGE: disabled so only TSan runs.
+    if: false
     runs-on: macos-13
     timeout-minutes: 120
     env:
@@ -261,7 +214,8 @@ jobs:
   # free GitHub-hosted runners (upstream runs it in-matrix on Cirrus runners).
   fuzzer:
     name: 'fuzzer, address, undefined, integer, no depends'
-    if: github.event_name != 'schedule' && (github.ref == 'refs/heads/develop' || github.base_ref == 'develop')
+    # PROBE BRANCH ONLY - DO NOT MERGE: disabled so only TSan runs.
+    if: false
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:
