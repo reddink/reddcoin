@@ -100,8 +100,19 @@ if [ "$RUN_FUNCTIONAL_TESTS" = "true" ]; then
   elif [ "$CI_USE_APT_INSTALL" != "no" ]; then
     ${CI_RETRY_EXE} DOCKER_EXEC apt-get install --no-install-recommends --no-upgrade -y python3-pip python3-dev libssl-dev
   fi
-  ${CI_RETRY_EXE} DOCKER_EXEC pip3 install --user setuptools wheel
-  ${CI_RETRY_EXE} DOCKER_EXEC pip3 install --user scrypt
+  # PEP 668 images (ubuntu:24.04 and newer, recent Homebrew) mark the system
+  # Python externally managed and pip then refuses to install into it at all,
+  # failing with "error: externally-managed-environment". Ask pip whether it
+  # knows the override rather than passing it unconditionally: older images do
+  # not have the option and reject it outright, and they do not need it. These
+  # containers are disposable and hold no Python the distro depends on, which
+  # is what the marker exists to protect.
+  PIP_USER_FLAGS="--user"
+  if DOCKER_EXEC pip3 install --help 2>/dev/null | grep -q -- --break-system-packages; then
+    PIP_USER_FLAGS="${PIP_USER_FLAGS} --break-system-packages"
+  fi
+  ${CI_RETRY_EXE} DOCKER_EXEC pip3 install ${PIP_USER_FLAGS} setuptools wheel
+  ${CI_RETRY_EXE} DOCKER_EXEC pip3 install ${PIP_USER_FLAGS} scrypt
 fi
 
 if [ "$CI_OS_NAME" == "macos" ]; then
