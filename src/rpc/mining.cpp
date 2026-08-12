@@ -1290,6 +1290,15 @@ static RPCHelpMan getblocktemplate()
             case ThresholdState::FAILED:
                 // Not exposed to GBT at all
                 break;
+            case ThresholdState::MUST_SIGNAL:
+                // REP-0002: signalling is mandatory this period, so the bit is not
+                // optional and must not be cleared for non-supporting clients.
+                // Pushing the name into rules (rather than vbavailable) makes a
+                // client that does not understand the rule refuse the template
+                // instead of silently clearing the bit and mining an invalid block.
+                pblock->nVersion |= g_versionbitscache.Mask(consensusParams, pos);
+                aRules.push_back(gbt_vb_name(pos));
+                break;
             case ThresholdState::LOCKED_IN:
                 // Ensure bit is set in block version
                 pblock->nVersion |= g_versionbitscache.Mask(consensusParams, pos);

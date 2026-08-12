@@ -31,9 +31,11 @@ public:
     const int m_threshold;
     const int m_min_activation_height;
     const int m_bit;
+    const bool m_lockinontimeout;
+    const bool m_mustsignal;
 
-    TestConditionChecker(int64_t begin, int64_t end, int period, int threshold, int min_activation_height, int bit)
-        : m_begin{begin}, m_end{end}, m_period{period}, m_threshold{threshold}, m_min_activation_height{min_activation_height}, m_bit{bit}
+    TestConditionChecker(int64_t begin, int64_t end, int period, int threshold, int min_activation_height, int bit, bool lockinontimeout = false, bool mustsignal = false)
+        : m_begin{begin}, m_end{end}, m_period{period}, m_threshold{threshold}, m_min_activation_height{min_activation_height}, m_bit{bit}, m_lockinontimeout{lockinontimeout}, m_mustsignal{mustsignal}
     {
         assert(m_period > 0);
         assert(0 <= m_threshold && m_threshold <= m_period);
@@ -47,6 +49,8 @@ public:
     int Period(const Consensus::Params& params) const override { return m_period; }
     int Threshold(const Consensus::Params& params) const override { return m_threshold; }
     int MinActivationHeight(const Consensus::Params& params) const override { return m_min_activation_height; }
+    bool LockinOnTimeout(const Consensus::Params& params) const override { return m_lockinontimeout; }
+    bool MustSignal(const Consensus::Params& params) const override { return m_mustsignal; }
 
     ThresholdState GetStateFor(const CBlockIndex* pindexPrev) const { return AbstractThresholdConditionChecker::GetStateFor(pindexPrev, dummy_params, m_cache); }
     int GetStateSinceHeightFor(const CBlockIndex* pindexPrev) const { return AbstractThresholdConditionChecker::GetStateSinceHeightFor(pindexPrev, dummy_params, m_cache); }
@@ -167,7 +171,13 @@ FUZZ_TARGET_INIT(versionbits, initialize)
     }
     int min_activation = fuzzed_data_provider.ConsumeIntegralInRange<int>(0, period * max_periods);
 
-    TestConditionChecker checker(start_time, timeout, period, threshold, min_activation, bit);
+    // REP-0002: BIP8 lot=true, and the opt-in forced-signalling period on top of it.
+    // Both are inert for the ALWAYS_ACTIVE / NEVER_ACTIVE cases, which short-circuit
+    // before the state machine runs.
+    const bool lockinontimeout = fuzzed_data_provider.ConsumeBool();
+    const bool mustsignal = lockinontimeout && fuzzed_data_provider.ConsumeBool();
+
+    TestConditionChecker checker(start_time, timeout, period, threshold, min_activation, bit, lockinontimeout, mustsignal);
 
     // Early exit if the versions don't signal sensibly for the deployment
     if (!checker.Condition(ver_signal)) return;
@@ -249,7 +259,9 @@ FUZZ_TARGET_INIT(versionbits, initialize)
         assert(stats.threshold == threshold);
         assert(stats.elapsed == b);
         assert(stats.count == last_stats.count + (signal ? 1 : 0));
-        assert(stats.possible == (stats.count + period >= stats.elapsed + threshold));
+        // REP-0002: lot=true guarantees lock-in at the timeout, so activation stays
+        // "possible" no matter how the count is going.
+        assert(stats.possible == (lockinontimeout || stats.count + period >= stats.elapsed + threshold));
         last_stats = stats;
     }
 
@@ -302,12 +314,26 @@ FUZZ_TARGET_INIT(versionbits, initialize)
             assert(exp_state == ThresholdState::DEFINED);
         }
         break;
+    case ThresholdState::MUST_SIGNAL:
+        // REP-0002: only reachable from STARTED at the timeout, and only for a
+        // deployment that opted into forced signalling.
+        assert(lockinontimeout && mustsignal);
+        assert(exp_state == ThresholdState::STARTED);
+        assert(blocks_sig < threshold);
+        assert(current_block->GetMedianTimePast() >= checker.m_end);
+        break;
     case ThresholdState::LOCKED_IN:
         if (exp_state == ThresholdState::LOCKED_IN) {
             assert(current_block->nHeight + 1 < min_activation);
+        } else if (exp_state == ThresholdState::MUST_SIGNAL) {
+            // REP-0002: MUST_SIGNAL unconditionally advances after exactly one period.
+            assert(lockinontimeout && mustsignal);
         } else {
             assert(exp_state == ThresholdState::STARTED);
-            assert(blocks_sig >= threshold);
+            // REP-0002: with lot=true (and no forced-signalling period) the deployment
+            // locks in at the timeout without ever reaching the threshold.
+            assert(blocks_sig >= threshold ||
+                   (lockinontimeout && !mustsignal && current_block->GetMedianTimePast() >= checker.m_end));
         }
         break;
     case ThresholdState::ACTIVE:
@@ -316,6 +342,8 @@ FUZZ_TARGET_INIT(versionbits, initialize)
         break;
     case ThresholdState::FAILED:
         assert(never_active_test || current_block->GetMedianTimePast() >= checker.m_end);
+        // REP-0002: lot=true never fails (NEVER_ACTIVE short-circuits the machine).
+        assert(never_active_test || !lockinontimeout);
         if (exp_state == ThresholdState::STARTED) {
             assert(blocks_sig < threshold);
         } else {
@@ -328,7 +356,10 @@ FUZZ_TARGET_INIT(versionbits, initialize)
 
     if (blocks.size() >= period * max_periods) {
         // we chose the timeout (and block times) so that by the time we have this many blocks it's all over
-        assert(state == ThresholdState::ACTIVE || state == ThresholdState::FAILED);
+        // REP-0002: mustsignal inserts one extra period between the timeout and
+        // lock-in, which can leave the deployment a step short of ACTIVE here.
+        assert(state == ThresholdState::ACTIVE || state == ThresholdState::FAILED ||
+               (mustsignal && (state == ThresholdState::MUST_SIGNAL || state == ThresholdState::LOCKED_IN)));
     }
 
     if (always_active_test) {

@@ -1435,11 +1435,14 @@ static void SoftForkDescPushBack(const CBlockIndex* active_chain_tip, UniValue& 
     switch (thresholdState) {
     case ThresholdState::DEFINED: bip9.pushKV("status", "defined"); break;
     case ThresholdState::STARTED: bip9.pushKV("status", "started"); break;
+    case ThresholdState::MUST_SIGNAL: bip9.pushKV("status", "must_signal"); break;
     case ThresholdState::LOCKED_IN: bip9.pushKV("status", "locked_in"); break;
     case ThresholdState::ACTIVE: bip9.pushKV("status", "active"); break;
     case ThresholdState::FAILED: bip9.pushKV("status", "failed"); break;
     }
-    if (ThresholdState::STARTED == thresholdState)
+    // REP-0002: MUST_SIGNAL reports the bit too - it is mandatory that period, so an
+    // operator needs to know which bit their blocks have to carry.
+    if (ThresholdState::STARTED == thresholdState || ThresholdState::MUST_SIGNAL == thresholdState)
     {
         bip9.pushKV("bit", consensusParams.vDeployments[id].bit);
     }

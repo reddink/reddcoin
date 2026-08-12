@@ -3387,6 +3387,25 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
                                  strprintf("rejected nVersion=0x%08x block", block.nVersion));
     }
 
+    // REP-0002: enforce forced signalling during a deployment's MUST_SIGNAL period.
+    // Only deployments that opt into mustsignal can ever reach that state, so for
+    // every current deployment this loop is a field read and nothing more.
+    for (int i = 0; i < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; ++i) {
+        const Consensus::DeploymentPos dep = Consensus::DeploymentPos(i);
+        if (!consensusParams.vDeployments[dep].mustsignal) continue;
+        if (g_versionbitscache.State(pindexPrev, consensusParams, dep) != ThresholdState::MUST_SIGNAL) continue;
+        // Signalling must be tested exactly as VersionBitsConditionChecker::Condition
+        // defines it - the top bits AND the deployment bit - or this rule and the
+        // threshold counter would disagree about what counts as a signal.
+        const bool signals = ((block.nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) &&
+                             (block.nVersion & VersionBitsCache::Mask(consensusParams, dep)) != 0;
+        if (!signals) {
+            return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "must-signal",
+                                 strprintf("block does not signal bit %d during MUST_SIGNAL",
+                                           consensusParams.vDeployments[dep].bit));
+        }
+    }
+
     return true;
 }
 

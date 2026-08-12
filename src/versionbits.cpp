@@ -75,8 +75,25 @@ ThresholdState AbstractThresholdConditionChecker::GetStateFor(const CBlockIndex*
                 if (count >= nThreshold) {
                     stateNext = ThresholdState::LOCKED_IN;
                 } else if (pindexPrev->GetMedianTimePast() >= nTimeTimeout) {
-                    stateNext = ThresholdState::FAILED;
+                    // REP-0002 / BIP8 timeout handling:
+                    //   lot=false             -> FAILED       (unchanged BIP9)
+                    //   lot=true, !mustsignal -> LOCKED_IN    (minimal, recommended)
+                    //   lot=true,  mustsignal -> MUST_SIGNAL  (force signalling one period)
+                    if (!LockinOnTimeout(params)) {
+                        stateNext = ThresholdState::FAILED;
+                    } else if (MustSignal(params)) {
+                        stateNext = ThresholdState::MUST_SIGNAL;
+                    } else {
+                        stateNext = ThresholdState::LOCKED_IN;
+                    }
                 }
+                break;
+            }
+            case ThresholdState::MUST_SIGNAL: {
+                // REP-0002: exactly one forced-signalling period, then lock in.
+                // Non-signalling blocks in this period are rejected by
+                // ContextualCheckBlockHeader.
+                stateNext = ThresholdState::LOCKED_IN;
                 break;
             }
             case ThresholdState::LOCKED_IN: {
@@ -122,7 +139,9 @@ BIP9Stats AbstractThresholdConditionChecker::GetStateStatisticsFor(const CBlockI
     }
 
     stats.count = count;
-    stats.possible = (stats.period - stats.threshold ) >= (stats.elapsed - count);
+    // REP-0002: with lot=true the deployment locks in at the timeout regardless of
+    // the count, so activation is always still possible (display only).
+    stats.possible = LockinOnTimeout(params) || (stats.period - stats.threshold ) >= (stats.elapsed - count);
 
     return stats;
 }
@@ -175,6 +194,8 @@ protected:
     int64_t BeginTime(const Consensus::Params& params) const override { return params.vDeployments[id].nStartTime; }
     int64_t EndTime(const Consensus::Params& params) const override { return params.vDeployments[id].nTimeout; }
     int MinActivationHeight(const Consensus::Params& params) const override { return params.vDeployments[id].min_activation_height; }
+    bool LockinOnTimeout(const Consensus::Params& params) const override { return params.vDeployments[id].lockinontimeout; }
+    bool MustSignal(const Consensus::Params& params) const override { return params.vDeployments[id].mustsignal; }
     int Period(const Consensus::Params& params) const override { return params.nMinerConfirmationWindow; }
     int Threshold(const Consensus::Params& params) const override { return params.nRuleChangeActivationThreshold; }
 
@@ -220,7 +241,12 @@ int32_t VersionBitsCache::ComputeBlockVersion(const CBlockIndex* pindexPrev, con
     for (int i = 0; i < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; i++) {
         Consensus::DeploymentPos pos = static_cast<Consensus::DeploymentPos>(i);
         ThresholdState state = VersionBitsConditionChecker(pos).GetStateFor(pindexPrev, params, m_caches[pos]);
-        if (state == ThresholdState::LOCKED_IN || state == ThresholdState::STARTED) {
+        // REP-0002: MUST_SIGNAL joins the signalling states - during that period the
+        // bit is mandatory, so blocks we build must carry it or we would reject our
+        // own blocks. This is an `if`, not a `switch`: adding the enumerator produces
+        // no diagnostic here.
+        if (state == ThresholdState::LOCKED_IN || state == ThresholdState::STARTED ||
+            state == ThresholdState::MUST_SIGNAL) {
             nVersion |= Mask(params, pos);
         }
     }

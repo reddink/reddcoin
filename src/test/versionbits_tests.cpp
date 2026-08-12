@@ -20,6 +20,7 @@ static const std::string StateName(ThresholdState state)
     switch (state) {
     case ThresholdState::DEFINED:   return "DEFINED";
     case ThresholdState::STARTED:   return "STARTED";
+    case ThresholdState::MUST_SIGNAL: return "MUST_SIGNAL";
     case ThresholdState::LOCKED_IN: return "LOCKED_IN";
     case ThresholdState::ACTIVE:    return "ACTIVE";
     case ThresholdState::FAILED:    return "FAILED";
@@ -63,6 +64,20 @@ public:
     int64_t BeginTime(const Consensus::Params& params) const override { return Consensus::BIP9Deployment::NEVER_ACTIVE; }
 };
 
+/** REP-0002: BIP8 lot=true - locks in at the timeout instead of failing. */
+class TestLotConditionChecker : public TestConditionChecker
+{
+public:
+    bool LockinOnTimeout(const Consensus::Params& params) const override { return true; }
+};
+
+/** REP-0002: lot=true plus the opt-in forced-signalling period before lock-in. */
+class TestMustSignalConditionChecker : public TestLotConditionChecker
+{
+public:
+    bool MustSignal(const Consensus::Params& params) const override { return true; }
+};
+
 #define CHECKERS 6
 
 class VersionBitsTester
@@ -80,6 +95,9 @@ class VersionBitsTester
     TestAlwaysActiveConditionChecker checker_always[CHECKERS];
     // Another 6 that assume never active activation
     TestNeverActiveConditionChecker checker_never[CHECKERS];
+    // REP-0002: another 6 with BIP8 lot=true, and 6 more that also force signalling
+    TestLotConditionChecker checker_lot[CHECKERS];
+    TestMustSignalConditionChecker checker_must[CHECKERS];
 
     // Test counter (to identify failures)
     int num{1000};
@@ -97,6 +115,8 @@ public:
             checker_delayed[i] = TestDelayedActivationConditionChecker();
             checker_always[i] = TestAlwaysActiveConditionChecker();
             checker_never[i] = TestNeverActiveConditionChecker();
+            checker_lot[i] = TestLotConditionChecker();
+            checker_must[i] = TestMustSignalConditionChecker();
         }
         vpblock.clear();
         return *this;
@@ -124,7 +144,14 @@ public:
         return TestStateSinceHeight(height, height);
     }
 
+    // REP-0002: the lot=true families track the plain family until a timeout is
+    // crossed, so they default to the same expectation.
     VersionBitsTester& TestStateSinceHeight(int height, int height_delayed)
+    {
+        return TestStateSinceHeight(height, height_delayed, height, height);
+    }
+
+    VersionBitsTester& TestStateSinceHeight(int height, int height_delayed, int height_lot, int height_must)
     {
         const CBlockIndex* tip = Tip();
         for (int i = 0; i < CHECKERS; i++) {
@@ -133,6 +160,8 @@ public:
                 BOOST_CHECK_MESSAGE(checker_delayed[i].GetStateSinceHeightFor(tip) == height_delayed, strprintf("Test %i for StateSinceHeight (delayed)", num));
                 BOOST_CHECK_MESSAGE(checker_always[i].GetStateSinceHeightFor(tip) == 0, strprintf("Test %i for StateSinceHeight (always active)", num));
                 BOOST_CHECK_MESSAGE(checker_never[i].GetStateSinceHeightFor(tip) == 0, strprintf("Test %i for StateSinceHeight (never active)", num));
+                BOOST_CHECK_MESSAGE(checker_lot[i].GetStateSinceHeightFor(tip) == height_lot, strprintf("Test %i for StateSinceHeight (lot=true)", num));
+                BOOST_CHECK_MESSAGE(checker_must[i].GetStateSinceHeightFor(tip) == height_must, strprintf("Test %i for StateSinceHeight (mustsignal)", num));
             }
         }
         num++;
@@ -145,6 +174,11 @@ public:
     }
 
     VersionBitsTester& TestState(ThresholdState exp, ThresholdState exp_delayed)
+    {
+        return TestState(exp, exp_delayed, exp, exp);
+    }
+
+    VersionBitsTester& TestState(ThresholdState exp, ThresholdState exp_delayed, ThresholdState exp_lot, ThresholdState exp_must)
     {
         if (exp != exp_delayed) {
             // only expected differences are that delayed stays in locked_in longer
@@ -159,6 +193,8 @@ public:
                 ThresholdState got_delayed = checker_delayed[i].GetStateFor(pindex);
                 ThresholdState got_always = checker_always[i].GetStateFor(pindex);
                 ThresholdState got_never = checker_never[i].GetStateFor(pindex);
+                ThresholdState got_lot = checker_lot[i].GetStateFor(pindex);
+                ThresholdState got_must = checker_must[i].GetStateFor(pindex);
                 // nHeight of the next block. If vpblock is empty, the next (ie first)
                 // block should be the genesis block with nHeight == 0.
                 int height = pindex == nullptr ? 0 : pindex->nHeight + 1;
@@ -166,6 +202,8 @@ public:
                 BOOST_CHECK_MESSAGE(got_delayed == exp_delayed, strprintf("Test %i for %s height %d (got %s; delayed case)", num, StateName(exp_delayed), height, StateName(got_delayed)));
                 BOOST_CHECK_MESSAGE(got_always == ThresholdState::ACTIVE, strprintf("Test %i for ACTIVE height %d (got %s; always active case)", num, height, StateName(got_always)));
                 BOOST_CHECK_MESSAGE(got_never == ThresholdState::FAILED, strprintf("Test %i for FAILED height %d (got %s; never active case)", num, height, StateName(got_never)));
+                BOOST_CHECK_MESSAGE(got_lot == exp_lot, strprintf("Test %i for %s height %d (got %s; lot=true case)", num, StateName(exp_lot), height, StateName(got_lot)));
+                BOOST_CHECK_MESSAGE(got_must == exp_must, strprintf("Test %i for %s height %d (got %s; mustsignal case)", num, StateName(exp_must), height, StateName(got_must)));
             }
         }
         num++;
@@ -180,6 +218,15 @@ public:
 
     // non-delayed should be active; delayed should still be locked in
     VersionBitsTester& TestActiveDelayed() { return TestState(ThresholdState::ACTIVE, ThresholdState::LOCKED_IN); }
+
+    // REP-0002: the one transition where the families diverge. At the timeout
+    // lot=false FAILS, minimal lot=true LOCKS IN, and mustsignal passes through
+    // MUST_SIGNAL for exactly one period first.
+    VersionBitsTester& TestFailedLotLockedIn()
+    {
+        return TestState(ThresholdState::FAILED, ThresholdState::FAILED,
+                         ThresholdState::LOCKED_IN, ThresholdState::MUST_SIGNAL);
+    }
 
     CBlockIndex* Tip() { return vpblock.empty() ? nullptr : vpblock.back(); }
 };
@@ -197,11 +244,11 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
                            .Mine(999, TestTime(20000), 0x100).TestDefined().TestStateSinceHeight(0) // Timeout and start time reached simultaneously
                            .Mine(1000, TestTime(20000), 0).TestStarted().TestStateSinceHeight(1000) // Hit started, stop signalling
                            .Mine(1999, TestTime(30001), 0).TestStarted().TestStateSinceHeight(1000)
-                           .Mine(2000, TestTime(30002), 0x100).TestFailed().TestStateSinceHeight(2000) // Hit failed, start signalling again
-                           .Mine(2001, TestTime(30003), 0x100).TestFailed().TestStateSinceHeight(2000)
-                           .Mine(2999, TestTime(30004), 0x100).TestFailed().TestStateSinceHeight(2000)
-                           .Mine(3000, TestTime(30005), 0x100).TestFailed().TestStateSinceHeight(2000)
-                           .Mine(4000, TestTime(30006), 0x100).TestFailed().TestStateSinceHeight(2000)
+                           .Mine(2000, TestTime(30002), 0x100).TestFailedLotLockedIn().TestStateSinceHeight(2000) // Hit failed, start signalling again (lot=true locks in instead)
+                           .Mine(2001, TestTime(30003), 0x100).TestFailedLotLockedIn().TestStateSinceHeight(2000)
+                           .Mine(2999, TestTime(30004), 0x100).TestFailedLotLockedIn().TestStateSinceHeight(2000)
+                           .Mine(3000, TestTime(30005), 0x100).TestState(ThresholdState::FAILED, ThresholdState::FAILED, ThresholdState::ACTIVE, ThresholdState::LOCKED_IN).TestStateSinceHeight(2000, 2000, 3000, 3000)
+                           .Mine(4000, TestTime(30006), 0x100).TestState(ThresholdState::FAILED, ThresholdState::FAILED, ThresholdState::ACTIVE, ThresholdState::ACTIVE).TestStateSinceHeight(2000, 2000, 3000, 4000)
 
         // DEFINED -> STARTED -> FAILED
                            .Reset().TestDefined().TestStateSinceHeight(0)
@@ -210,8 +257,8 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
                            .Mine(2000, TestTime(10000), 0x100).TestStarted().TestStateSinceHeight(2000) // So that's what happens the next period
                            .Mine(2051, TestTime(10010), 0).TestStarted().TestStateSinceHeight(2000) // 51 old blocks
                            .Mine(2950, TestTime(10020), 0x100).TestStarted().TestStateSinceHeight(2000) // 899 new blocks
-                           .Mine(3000, TestTime(20000), 0).TestFailed().TestStateSinceHeight(3000) // 50 old blocks (so 899 out of the past 1000)
-                           .Mine(4000, TestTime(20010), 0x100).TestFailed().TestStateSinceHeight(3000)
+                           .Mine(3000, TestTime(20000), 0).TestFailedLotLockedIn().TestStateSinceHeight(3000) // 50 old blocks (so 899 out of the past 1000)
+                           .Mine(4000, TestTime(20010), 0x100).TestState(ThresholdState::FAILED, ThresholdState::FAILED, ThresholdState::ACTIVE, ThresholdState::LOCKED_IN).TestStateSinceHeight(3000, 3000, 4000, 4000)
 
         // DEFINED -> STARTED -> LOCKEDIN after timeout reached -> ACTIVE
                            .Reset().TestDefined().TestStateSinceHeight(0)
@@ -249,11 +296,106 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
                            .Mine(4000, TestTime(10000), 0).TestStarted().TestStateSinceHeight(3000)
                            .Mine(5000, TestTime(10000), 0).TestStarted().TestStateSinceHeight(3000)
                            .Mine(5999, TestTime(20000), 0).TestStarted().TestStateSinceHeight(3000)
-                           .Mine(6000, TestTime(20000), 0).TestFailed().TestStateSinceHeight(6000)
-                           .Mine(7000, TestTime(20000), 0x100).TestFailed().TestStateSinceHeight(6000)
-                           .Mine(24000, TestTime(20000), 0x100).TestFailed().TestStateSinceHeight(6000) // stay in FAILED no matter how much we signal
+                           .Mine(6000, TestTime(20000), 0).TestFailedLotLockedIn().TestStateSinceHeight(6000)
+                           .Mine(7000, TestTime(20000), 0x100).TestState(ThresholdState::FAILED, ThresholdState::FAILED, ThresholdState::ACTIVE, ThresholdState::LOCKED_IN).TestStateSinceHeight(6000, 6000, 7000, 7000)
+                           .Mine(24000, TestTime(20000), 0x100).TestState(ThresholdState::FAILED, ThresholdState::FAILED, ThresholdState::ACTIVE, ThresholdState::ACTIVE).TestStateSinceHeight(6000, 6000, 7000, 8000) // stay in FAILED no matter how much we signal (lot=true went ACTIVE)
         ;
     }
+}
+
+BOOST_AUTO_TEST_CASE(versionbits_lockinontimeout)
+{
+    for (int i = 0; i < 64; i++) {
+        // REP-0002: never signal, and run past the timeout.
+        //   lot=false   -> FAILED, and stays there for good
+        //   lot=true    -> LOCKED_IN at the timeout, then ACTIVE
+        //   +mustsignal -> MUST_SIGNAL for exactly one period first
+        VersionBitsTester().TestDefined().TestStateSinceHeight(0)
+                           .Mine(1000, TestTime(10000) - 1, 0).TestDefined().TestStateSinceHeight(0)
+                           .Mine(2000, TestTime(10000), 0).TestStarted().TestStateSinceHeight(2000)
+                           .Mine(3000, TestTime(20000), 0).TestFailedLotLockedIn().TestStateSinceHeight(3000) // timeout, nothing signalled
+                           .Mine(4000, TestTime(20010), 0).TestState(ThresholdState::FAILED, ThresholdState::FAILED, ThresholdState::ACTIVE, ThresholdState::LOCKED_IN).TestStateSinceHeight(3000, 3000, 4000, 4000)
+                           .Mine(5000, TestTime(20020), 0).TestState(ThresholdState::FAILED, ThresholdState::FAILED, ThresholdState::ACTIVE, ThresholdState::ACTIVE).TestStateSinceHeight(3000, 3000, 4000, 5000)
+                           .Mine(6000, TestTime(20030), 0).TestState(ThresholdState::FAILED, ThresholdState::FAILED, ThresholdState::ACTIVE, ThresholdState::ACTIVE).TestStateSinceHeight(3000, 3000, 4000, 5000) // all three are now in a terminal state
+
+        // The threshold IS met, well before the timeout: every family behaves
+        // identically to BIP9. This is the assertion that lot=true leaves the
+        // happy path alone - the single-argument helpers below assert all four
+        // families against the same expectation.
+                           .Reset().TestDefined().TestStateSinceHeight(0)
+                           .Mine(1000, TestTime(10000) - 1, 0).TestDefined().TestStateSinceHeight(0)
+                           .Mine(2000, TestTime(10000), 0).TestStarted().TestStateSinceHeight(2000)
+                           .Mine(3000, TestTime(10010), 0x100).TestLockedIn().TestStateSinceHeight(3000) // 1000 of the past 1000 signalled
+                           .Mine(4000, TestTime(10020), 0).TestActiveDelayed().TestStateSinceHeight(4000, 3000)
+                           .Mine(15000, TestTime(10030), 0).TestActive().TestStateSinceHeight(4000, 15000)
+
+        // The threshold is met in the very period that crosses the timeout. The
+        // count is checked first, so lock-in is by signalling for every family and
+        // mustsignal does NOT insert a forced-signalling period.
+                           .Reset().TestDefined().TestStateSinceHeight(0)
+                           .Mine(1000, TestTime(10000) - 1, 0).TestDefined().TestStateSinceHeight(0)
+                           .Mine(2000, TestTime(10000), 0).TestStarted().TestStateSinceHeight(2000)
+                           .Mine(3000, TestTime(20000), 0x100).TestLockedIn().TestStateSinceHeight(3000)
+                           .Mine(4000, TestTime(20010), 0).TestActiveDelayed().TestStateSinceHeight(4000, 3000)
+        ;
+    }
+}
+
+BOOST_AUTO_TEST_CASE(versionbits_computeblockversion_mustsignal)
+{
+    // REP-0002: ComputeBlockVersion selects the signalling states with an `if`, not a
+    // `switch`, so leaving MUST_SIGNAL out of it produces no compiler diagnostic. A
+    // node that stopped signalling during its own deployment's MUST_SIGNAL period
+    // would build blocks that its own consensus rule rejects.
+    g_versionbitscache.Clear();
+
+    const auto chainParams = CreateChainParams(*m_node.args, CBaseChainParams::REGTEST);
+    Consensus::Params params = chainParams->GetConsensus();
+
+    const auto dep = Consensus::DEPLOYMENT_TESTDUMMY;
+    const int bit = params.vDeployments[dep].bit;
+    params.vDeployments[dep].nStartTime = TestTime(10000);
+    params.vDeployments[dep].nTimeout = TestTime(20000);
+    params.vDeployments[dep].min_activation_height = 0;
+    params.vDeployments[dep].lockinontimeout = true;
+    params.vDeployments[dep].mustsignal = true;
+
+    const unsigned int period = params.nMinerConfirmationWindow;
+    // Nothing below ever signals: the deployment can only reach lock-in by timeout.
+    const int32_t no_signal = VERSIONBITS_LAST_OLD_BLOCK_VERSION;
+
+    VersionBitsTester chain;
+    auto state_at = [&](const CBlockIndex* tip) { return g_versionbitscache.State(tip, params, dep); };
+    auto version_at = [&](const CBlockIndex* tip) { return g_versionbitscache.ComputeBlockVersion(tip, params); };
+
+    // Before the start time: DEFINED, bit clear.
+    const CBlockIndex* tip = chain.Mine(period, TestTime(10000) - 1, no_signal).Tip();
+    BOOST_CHECK_MESSAGE(state_at(tip) == ThresholdState::DEFINED, StateName(state_at(tip)));
+    BOOST_CHECK_EQUAL(version_at(tip) & (1 << bit), 0);
+
+    // Past the start time: STARTED, bit set.
+    tip = chain.Mine(period * 2, TestTime(10000), no_signal).Tip();
+    BOOST_CHECK_MESSAGE(state_at(tip) == ThresholdState::STARTED, StateName(state_at(tip)));
+    BOOST_CHECK((version_at(tip) & (1 << bit)) != 0);
+
+    // Past the timeout with the threshold unmet: MUST_SIGNAL. The bit is mandatory
+    // this period, so it must still be set - this is the regression assertion.
+    tip = chain.Mine(period * 3, TestTime(20000), no_signal).Tip();
+    BOOST_CHECK_MESSAGE(state_at(tip) == ThresholdState::MUST_SIGNAL, StateName(state_at(tip)));
+    BOOST_CHECK((version_at(tip) & (1 << bit)) != 0);
+    BOOST_CHECK_EQUAL(version_at(tip) & VERSIONBITS_TOP_MASK, VERSIONBITS_TOP_BITS);
+
+    // One period later: LOCKED_IN, still signalling.
+    tip = chain.Mine(period * 4, TestTime(20010), no_signal).Tip();
+    BOOST_CHECK_MESSAGE(state_at(tip) == ThresholdState::LOCKED_IN, StateName(state_at(tip)));
+    BOOST_CHECK((version_at(tip) & (1 << bit)) != 0);
+
+    // Then ACTIVE, and signalling stops.
+    tip = chain.Mine(period * 5, TestTime(20020), no_signal).Tip();
+    BOOST_CHECK_MESSAGE(state_at(tip) == ThresholdState::ACTIVE, StateName(state_at(tip)));
+    BOOST_CHECK_EQUAL(version_at(tip) & (1 << bit), 0);
+
+    g_versionbitscache.Clear();
 }
 
 /** Check that ComputeBlockVersion will set the appropriate bit correctly */

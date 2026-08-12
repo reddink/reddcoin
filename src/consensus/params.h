@@ -54,6 +54,15 @@ struct BIP9Deployment {
      *  boundary.
      */
     int min_activation_height{0};
+    /** REP-0002 (BIP8 lot=true): if set, the deployment LOCKS_IN at nTimeout even
+     *  if the signalling threshold was not met, guaranteeing activation. Default
+     *  false preserves BIP9 semantics exactly. */
+    bool lockinontimeout{false};
+    /** REP-0002 (optional): with lockinontimeout, pass through a MUST_SIGNAL period
+     *  at timeout in which non-signalling blocks are invalid, forcing the bit on
+     *  before LOCKED_IN. Ignored if lockinontimeout is false. Default false =
+     *  minimal lot=true (no forced signalling). */
+    bool mustsignal{false};
 
     /** Constant for nTimeout very far in the future. */
     static constexpr int64_t NO_TIMEOUT = std::numeric_limits<int64_t>::max();
