@@ -151,6 +151,20 @@ bool CreateCoinStake(const CWallet* pwallet, CChainState* chainstate, unsigned i
     // Height the coinstake being built would be spent at.
     const int nSpendHeight = pindexTip->nHeight + 1;
 
+    // REP-0003 (R5): once PoSV3 is active, search every legal masked slot rather
+    // than only the last ~60 seconds. The window runs from the median-time-past
+    // floor up to the tightened future-drift bound, so it holds only a couple of
+    // dozen slots; trying all of them costs a handful of hashes per tip and closes
+    // the asymmetry that made grinding profitable, where an attacker enumerating
+    // the whole window could find winning timestamps an honest wallet never tried.
+    const bool posv3 = IsPoSV3Active(pindexTip, consensusParams);
+    const int64_t nStakeMask = posv3 ? consensusParams.nStakeTimestampMask : 0;
+    const int64_t nStakeStep = nStakeMask + 1;
+    // Mirror the floor BlockAssembler::CreateNewBlock applies to the finished
+    // coinstake, so the search never returns a timestamp the miner would discard.
+    const int64_t nStakeFloor = std::max(pindexTip->GetMedianTimePast() + 1,
+                                         pindexTip->GetBlockTime() - MAX_FUTURE_STAKE_TIME);
+
     for (const auto& pcoin : setCoins)
     {
         // Re-check maturity against the UTXO set rather than trusting the
@@ -204,19 +218,34 @@ bool CreateCoinStake(const CWallet* pwallet, CChainState* chainstate, unsigned i
         }
 
         static int nMaxStakeSearchInterval = 60;
-        if (header.GetBlockTime() + consensusParams.nStakeMinAge > txNew.nTime - nMaxStakeSearchInterval)
-            continue; // only count coins meeting min age requirement
+
+        // Candidate timestamps, newest first.
+        //  - legacy: the last min(nSearchInterval, 60) one-second timestamps.
+        //  - PoSV3:  every masked slot in [nStakeFloor, now + MAX_FUTURE_BLOCK_TIME_POSV3].
+        int64_t nSearchHi, nSearchLo;
+        if (posv3) {
+            nSearchHi = ((int64_t)txNew.nTime + MAX_FUTURE_BLOCK_TIME_POSV3) & ~nStakeMask;
+            nSearchLo = (nStakeFloor + nStakeMask) & ~nStakeMask; // round the floor up to a slot
+        } else {
+            if (header.GetBlockTime() + consensusParams.nStakeMinAge > txNew.nTime - nMaxStakeSearchInterval)
+                continue; // only count coins meeting min age requirement
+            nSearchHi = txNew.nTime;
+            nSearchLo = (int64_t)txNew.nTime - std::min<int64_t>(nSearchInterval, nMaxStakeSearchInterval) + 1;
+        }
 
         bool fKernelFound = false;
-        for (unsigned int n=0; n<std::min(nSearchInterval,(int64_t)nMaxStakeSearchInterval) && !fKernelFound; n++)
+        for (int64_t nTryTime = nSearchHi; nTryTime >= nSearchLo && !fKernelFound; nTryTime -= nStakeStep)
         {
-            // Search backward in time from the given txNew timestamp
-            // Search nSearchInterval seconds back up to nMaxStakeSearchInterval
+            // Search backward in time from the newest candidate timestamp.
+            // PoSV3 widens the window well past the legacy 60 seconds, so the min-age
+            // rule is applied per candidate here instead of by the coarse precheck
+            // above, which only holds for the legacy window.
+            if (posv3 && header.GetBlockTime() + consensusParams.nStakeMinAge > nTryTime)
+                continue;
             uint256 hashProofOfStake = uint256();
             COutPoint prevoutStake = pcoin.outpoint;
             // When creating a new stake block, use current chain tip as parent
-            CBlockIndex* pindexPrev = chainstate->m_chain.Tip();
-            bool foundStake = CheckStakeKernelHash(chainstate, pindexPrev, nBits, header, prevoutStake.n, tx, prevoutStake, txNew.nTime - n, hashProofOfStake);
+            bool foundStake = CheckStakeKernelHash(chainstate, pindexTip, nBits, header, prevoutStake.n, tx, prevoutStake, (unsigned int)nTryTime, hashProofOfStake);
             if (foundStake)
             {
                 // Found a kernel
@@ -318,7 +347,7 @@ bool CreateCoinStake(const CWallet* pwallet, CChainState* chainstate, unsigned i
                     scriptPubKeyOut = scriptPubKeyKernel;
                 }
 
-                txNew.nTime -= n;
+                txNew.nTime = (uint32_t)nTryTime;
                 txNew.vin.push_back(CTxIn(pcoin.outpoint.hash, pcoin.outpoint.n));
                 nCredit += pcoin.txout.nValue;
                 vwtxPrev.push_back(tx);
