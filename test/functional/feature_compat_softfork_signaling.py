@@ -27,8 +27,29 @@ Test phases:
   Phase D: Mixed signaling — each node generates 10 blocks independently, then
            reconnect and verify no chain split
   Phase E: Post-activation verification — CSV BIP68 transaction, getchaintips check
+  Phase F: REP-0002 minimal lot=true — the deployment activates on the new node
+           and is unknown to the old one, yet both stay on a single chain
+  Phase G: REP-0002 mustsignal — a forced-signalling deployment splits the two
+           versions, because v4.22.9 has no MUST_SIGNAL state and accepts a block
+           v4.22.10 rejects
+
+Phases F and G are the two halves of REP-0002's compatibility story. Minimal
+lot=true, the mode REP-0003 will use, adds no block-rejection rule, so the
+versions can only disagree about the reported deployment state; phase F pins that
+down so a future change coupling block validity to deployment state cannot pass
+unnoticed. mustsignal adds a real rejection rule an old node knows nothing about,
+and phase G shows it splitting the chain.
+
+In both phases the deployment window is derived from the chain's own median
+times, so they work wherever the earlier phases leave the tip.
 """
 
+from test_framework.address import key_to_p2pkh
+from test_framework.blocktools import (
+    NORMAL_GBT_REQUEST_PARAMS,
+    create_block,
+    sign_block,
+)
 from test_framework.messages import (
     COIN,
     COutPoint,
@@ -57,6 +78,12 @@ BIP9_ACTIVATION_HEIGHT = 432
 
 # nSequence value for 1-block relative lock (CSV BIP68 test)
 SEQUENCE_LOCK_1_BLOCK = 1
+
+# REP-0002 (Phase F): regtest testdummy bit, and a block version that is a valid
+# versionbits block but withholds that bit.
+VB_TOP_BITS = 0x20000000
+TESTDUMMY_BIT = 28
+VB_NO_SIGNAL = VB_TOP_BITS
 
 
 class CompatSoftforkSignalingTest(BitcoinTestFramework):
@@ -185,6 +212,102 @@ class CompatSoftforkSignalingTest(BitcoinTestFramework):
                 return int(txid_hex, 16), i, int(vout_info["value"] * COIN)
 
         raise AssertionError("Could not find funded vout for address %s" % addr)
+
+    def _get_signing_key(self, node, block):
+        """Extract the signing key for a PoS block from its coinstake output."""
+        decoded = node.decoderawtransaction(block.vtx[1].serialize().hex())
+        spk = decoded["vout"][1]["scriptPubKey"]
+
+        address = spk.get("address")
+        if not address:
+            addresses = spk.get("addresses", [])
+            if addresses:
+                address = addresses[0]
+        if not address and spk.get("type") == "pubkey":
+            asm = spk.get("asm", "").split()
+            if asm and asm[0] != "OP_CHECKSIG":
+                address = key_to_p2pkh(asm[0], main=False)
+
+        assert address is not None, "could not resolve the coinstake signing address"
+        return node.dumpprivkey(address)
+
+    def _build_block(self, node, version, max_attempts=10):
+        """Build and sign a PoS block on top of the tip with an explicit nVersion.
+
+        getblocktemplate can only build a PoS template when a valid coinstake
+        exists at the current mocktime, so retry with time advanced.
+        """
+        for attempt in range(max_attempts):
+            try:
+                advance_time_for_pos(node, seconds=60)
+                tmpl = node.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
+                block = create_block(tmpl=tmpl, version=version)
+                block.solve()
+                sign_block(block, self._get_signing_key(node, block))
+                return block
+            except Exception as exc:
+                if "no valid coinstake found" in str(exc) and attempt < max_attempts - 1:
+                    advance_time_for_pos(node, seconds=120)
+                    continue
+                raise
+
+    def _restart_with_vbparams(self, old_vbparams, new_vbparams):
+        """Restart both nodes, each with its own testdummy configuration.
+
+        Pass None to leave a node's deployment at the regtest default of
+        NEVER_ACTIVE, which is what a genuinely old release looks like: it has
+        never heard of the deployment and does not recognise the bit.
+
+        Note that v4.22.9's -vbparams parser rejects more than four fields, so it
+        cannot be given lockinontimeout even deliberately. That is REP-0002's
+        uniform-release requirement enforced mechanically rather than only
+        documented.
+        """
+        old_args = self.extra_args[0] + ([old_vbparams] if old_vbparams else [])
+        new_args = self.extra_args[1] + ([new_vbparams] if new_vbparams else [])
+        self.restart_node(0, extra_args=old_args)
+        self.restart_node(1, extra_args=new_args)
+
+        # restart_node drops the node's mocktime, leaving it on wall-clock time
+        # while the framework still tracks the old value. Re-anchor both to the
+        # tip so block timestamps and GetAdjustedTime stay on one clock.
+        node1 = self.nodes[1]
+        set_node_times(self.nodes, node1.getblockheader(node1.getbestblockhash())["time"])
+
+    def _timeout_window(self, node):
+        """Pick (period_start, start, timeout) so the period holding the tip times out.
+
+        Derives the times from the chain's own median times rather than assuming a
+        fixed window, so the phase works wherever the earlier phases left the tip:
+        STARTED one period back, timeout crossed by the end of it.
+        """
+        height = node.getblockcount()
+        period_start = (height // BIP9_WINDOW) * BIP9_WINDOW
+
+        def mtp(h):
+            return node.getblockheader(node.getblockhash(h))["mediantime"]
+
+        # The timeout branch is only reached if the threshold was missed, so make
+        # that a checked precondition instead of an assumption about earlier phases.
+        signalling = sum(
+            1 for h in range(period_start - BIP9_WINDOW, period_start)
+            if node.getblockheader(node.getblockhash(h))["version"] & (1 << TESTDUMMY_BIT)
+        )
+        assert signalling < BIP9_THRESHOLD, (
+            "period before %d has %d signalling blocks (threshold %d), so the deployment "
+            "would lock in by threshold rather than by timeout"
+            % (period_start, signalling, BIP9_THRESHOLD))
+
+        return period_start, mtp(period_start - BIP9_WINDOW - 1), mtp(period_start - 1)
+
+    def _sync_clocks(self):
+        """Bring both nodes onto the later of the two mocktimes, as phase D does."""
+        current = max(
+            self.nodes[0].mocktime if getattr(self.nodes[0], "mocktime", None) else 0,
+            self.nodes[1].mocktime if getattr(self.nodes[1], "mocktime", None) else 0,
+        )
+        if current:
+            set_node_times(self.nodes, current)
 
     # ------------------------------------------------------------------
     # Test phases
@@ -459,6 +582,150 @@ class CompatSoftforkSignalingTest(BitcoinTestFramework):
         assert_equal(active_hash0, active_hash1)
         self.log.info("Phase E passed: both nodes on identical active chain tip")
 
+    def phase_f_minimal_lot_no_split(self):
+        """REP-0002: minimal lot=true activates on the new node without splitting v4.22.9.
+
+        This is the mode REP-0003 will use, and the one that has to be safe. It adds
+        no block-rejection rule, so the two versions should disagree only about the
+        reported deployment state while staying on a single chain.
+
+        The old node is given no testdummy configuration at all. That is deliberate:
+        a real old release has never heard of the deployment and does not recognise
+        the bit, which is a different situation from having it configured with
+        lockinontimeout absent.
+        """
+        self.log.info("=== Phase F: REP-0002 minimal lot=true, no split ===")
+        node0 = self.nodes[0]  # old v4.22.9
+        node1 = self.nodes[1]  # new v4.22.10
+
+        shared_tip = node1.getbestblockhash()
+        assert_equal(node0.getbestblockhash(), shared_tip)
+
+        period_start, start_time, timeout = self._timeout_window(node1)
+        self.log.info("Tip height %d, period starts at %d; testdummy start=%d timeout=%d"
+                      % (node1.getblockcount(), period_start, start_time, timeout))
+
+        self._restart_with_vbparams(
+            None,  # old node: deployment unknown, as a real old release would be
+            "-vbparams=testdummy:%d:%d:0:1" % (start_time, timeout),
+        )
+        self.connect_nodes(0, 1)
+        self.sync_blocks(timeout=300)
+
+        sf1 = node1.getblockchaininfo()["softforks"]["testdummy"]
+        assert_equal(sf1["bip9"]["status"], "locked_in")
+        assert_equal(sf1["active"], False)
+        assert_equal(sf1["bip9"]["since"], period_start)
+        assert "testdummy" not in node0.getblockchaininfo()["softforks"], \
+            "old node should not report a deployment it was never told about"
+        self.log.info("New node locked in at %d by timeout; old node does not know the deployment"
+                      % period_start)
+
+        # Mine past the next boundary so the new node activates. The old node must
+        # follow every batch: these blocks signal bit 28, which it does not recognise.
+        target = period_start + BIP9_WINDOW + 4
+        self.log.info("Mining to height %d so the new node activates..." % target)
+        while node1.getblockcount() < target:
+            batch = min(50, target - node1.getblockcount())
+            self._generate_pos_blocks(node1, batch)
+            self._sync_clocks()
+            self.sync_blocks(timeout=300)
+            assert_equal(node0.getbestblockhash(), node1.getbestblockhash())
+
+        sf1 = node1.getblockchaininfo()["softforks"]["testdummy"]
+        assert_equal(sf1["bip9"]["status"], "active")
+        assert_equal(sf1["active"], True)
+        assert_equal(sf1["bip9"]["since"], period_start + BIP9_WINDOW)
+        assert "testdummy" not in node0.getblockchaininfo()["softforks"]
+
+        assert_equal(node0.getbestblockhash(), node1.getbestblockhash())
+        assert_equal(node0.getblockcount(), node1.getblockcount())
+        for node in (node0, node1):
+            assert_equal(len([t for t in node.getchaintips() if t["status"] == "active"]), 1)
+
+        self.log.info(
+            "Phase F passed: deployment is ACTIVE on the new node and unknown to the old "
+            "one, yet both sit on the same tip %s at height %d. Minimal lot=true adds no "
+            "block rule, so a non-upgraded node keeps following the chain."
+            % (node1.getbestblockhash(), node1.getblockcount())
+        )
+
+    def phase_g_mustsignal_split(self):
+        """REP-0002: a mustsignal deployment splits v4.22.9 from v4.22.10.
+
+        The deployment is configured against the chain that already exists, so the
+        period holding the tip is the one the deployment times out in. The new node
+        enters MUST_SIGNAL there; the old node, which has no such state, goes
+        FAILED. A single non-signalling block is then offered to both.
+        """
+        self.log.info("=== Phase G: REP-0002 mustsignal chain split ===")
+        node0 = self.nodes[0]  # old v4.22.9
+        node1 = self.nodes[1]  # new v4.22.10
+
+        shared_tip = node1.getbestblockhash()
+        assert_equal(node0.getbestblockhash(), shared_tip)
+
+        # Keep the tip away from a period boundary, so the block we build below is
+        # still inside the forced-signalling period rather than the one after it.
+        while not 4 <= node1.getblockcount() % BIP9_WINDOW <= BIP9_WINDOW - 4:
+            self._generate_pos_blocks(node1, 1)
+        self._sync_clocks()
+        self.sync_blocks(timeout=300)
+        shared_tip = node1.getbestblockhash()
+        assert_equal(node0.getbestblockhash(), shared_tip)
+
+        height = node1.getblockcount()
+        period_start, start_time, timeout = self._timeout_window(node1)
+        self.log.info("Tip height %d, period starts at %d; testdummy start=%d timeout=%d"
+                      % (height, period_start, start_time, timeout))
+
+        # The old node is given the four-field form: it cannot parse more, so it
+        # cannot be told about lockinontimeout even on purpose.
+        self._restart_with_vbparams(
+            "-vbparams=testdummy:%d:%d:0" % (start_time, timeout),
+            "-vbparams=testdummy:%d:%d:0:1:1" % (start_time, timeout),
+        )
+
+        # Restarting drops the peer connection, which is what we want: the split
+        # below must be observed without either node relaying to the other.
+        assert_equal(node1.getbestblockhash(), shared_tip)
+        assert_equal(node0.getbestblockhash(), shared_tip)
+
+        sf1 = node1.getblockchaininfo()["softforks"]["testdummy"]
+        assert_equal(sf1["bip9"]["status"], "must_signal")
+        assert_equal(sf1["active"], False)
+        assert_equal(sf1["bip9"]["since"], period_start)
+
+        sf0 = node0.getblockchaininfo()["softforks"]["testdummy"]
+        assert_equal(sf0["bip9"]["status"], "failed")
+        assert_equal(sf0["active"], False)
+        self.log.info("States diverge as designed: new node=must_signal, old node=failed")
+
+        self.log.info("Offering the same non-signalling block to both nodes...")
+        block = self._build_block(node1, VB_NO_SIGNAL)
+        block_hex = block.serialize().hex()
+        assert (block.nVersion & (1 << TESTDUMMY_BIT)) == 0, "test block must not signal"
+
+        # The new node enforces the MUST_SIGNAL rule.
+        assert_equal(node1.submitblock(block_hex), "must-signal")
+        assert_equal(node1.getbestblockhash(), shared_tip)
+
+        # The old node has never heard of it and extends its chain.
+        assert_equal(node0.submitblock(block_hex), None)
+        assert_equal(node0.getblockcount(), height + 1)
+        assert_equal(node0.getbestblockhash(), block.hash)
+
+        assert node0.getbestblockhash() != node1.getbestblockhash(), \
+            "expected the nodes to diverge on the non-signalling block"
+
+        self.log.info(
+            "Phase G passed: old node tip %s (height %d), new node tip %s (height %d). "
+            "mustsignal is not deployable without a uniform release; minimal "
+            "lot=true, which REP-0003 uses, adds no block rule and cannot split."
+            % (node0.getbestblockhash(), node0.getblockcount(),
+               node1.getbestblockhash(), node1.getblockcount())
+        )
+
     # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
@@ -474,6 +741,8 @@ class CompatSoftforkSignalingTest(BitcoinTestFramework):
         self.phase_c_deployment_status_comparison()
         self.phase_d_lead_staker_extends()
         self.phase_e_post_activation_verification()
+        self.phase_f_minimal_lot_no_split()
+        self.phase_g_mustsignal_split()
 
         self.log.info("All phases passed")
 
