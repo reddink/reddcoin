@@ -34,6 +34,7 @@ enum DeploymentPos : uint16_t {
     DEPLOYMENT_CSV,        // Deployment of BIP68, BIP112, and BIP113.
     DEPLOYMENT_SEGWIT,     // Deployment of BIP141, BIP143, and BIP147.
     DEPLOYMENT_TAPROOT,    // Deployment of Schnorr/Taproot (BIPs 340-342)
+    DEPLOYMENT_POSV3,      // REP-0003: stake-timestamp mask + future-drift reduction
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in deploymentinfo.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };
@@ -137,6 +138,11 @@ struct Params {
     int64_t nStakeMaxAge;
     int64_t nModifierInterval;
     int nLastPowHeight;
+    /** REP-0003: granularity mask for PoS block/coinstake timestamps; 0 keeps the
+     *  legacy 1-second granularity. Mainnet 0xf gives 16-second slots. Only
+     *  enforced on chains where DEPLOYMENT_POSV3 is active, so setting it is
+     *  inert until that deployment activates. */
+    int nStakeTimestampMask{0};
     /** Height at (and above) which PoS-era blocks must contain only
      *  nVersion > POW_TX_VERSION transactions (bad-txns-version-pos).
      *  Set above the deployment tip so pre-existing v1 txs are grandfathered.

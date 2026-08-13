@@ -52,4 +52,26 @@ inline bool DeploymentEnabled(const Consensus::Params& params, Consensus::Deploy
     return params.vDeployments[dep].nStartTime != Consensus::BIP9Deployment::NEVER_ACTIVE;
 }
 
+/**
+ * REP-0003: is the block extending pindexPrev in the PoS era?
+ *
+ * Mirrors the tree's existing PoS-era tests in validation.cpp (ConnectBlock's
+ * "pow-ended" check and the BIP30 loop), which both compare the block's own
+ * height with strict `>` against nLastPowHeight.
+ *
+ * Callers that only hold a CBlockHeader must use this rather than
+ * CBlockHeader::IsProofOfStake(), which merely reports nVersion >
+ * POW_BLOCK_VERSION and is therefore attacker-chosen.
+ */
+inline bool IsPoSEraBlock(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    return pindexPrev != nullptr && pindexPrev->nHeight + 1 > params.nLastPowHeight;
+}
+
+/** REP-0003: are the PoSV3 stake-timestamp rules active for a block extending pindexPrev? */
+inline bool IsPoSV3Active(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    return DeploymentActiveAfter(pindexPrev, params, Consensus::DEPLOYMENT_POSV3);
+}
+
 #endif // BITCOIN_DEPLOYMENTSTATUS_H

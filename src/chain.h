@@ -24,6 +24,12 @@
  */
 static constexpr int64_t MAX_FUTURE_BLOCK_TIME = 2 * 60 * 60;
 static constexpr int64_t MAX_FUTURE_STAKE_TIME = 3 * 60;
+/**
+ * REP-0003: the tightened future-drift bound applied to PoS blocks once
+ * DEPLOYMENT_POSV3 is active. Deliberately shorter than one stake-timestamp slot
+ * (nStakeTimestampMask + 1), so at most one legal future slot exists per tip.
+ */
+static constexpr int64_t MAX_FUTURE_BLOCK_TIME_POSV3 = 15;
 
 /**
  * Timestamp window used as a grace period by code that compares external

@@ -95,6 +95,7 @@ public:
         consensus.nStakeMinAge = 8 * 60 * 60; // 8 hours
         consensus.nStakeMaxAge = 45 * 24 *  60 * 60; // 45 days
         consensus.nModifierInterval = 13 * 60;
+        consensus.nStakeTimestampMask = 0xf; // REP-0003: 16-second stake slots, once DEPLOYMENT_POSV3 activates
 
         consensus.nRuleChangeActivationThreshold = 12960; // 90% of 14400
         consensus.nMinerConfirmationWindow = 14400; // (nPowTargetTimespan / nPowTargetSpacing) * 10 (10 Days)
@@ -128,6 +129,14 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay
+
+        // REP-0003: PoSV3 stake-timestamp hardening. Integrated dark - the activation
+        // window is set in its own change once the release schedule is fixed.
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].min_activation_height = 0; // No activation delay
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].lockinontimeout = true; // REP-0002 BIP8 backstop
 
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000000261a88258d4b86bb");
         consensus.defaultAssumeValid = uint256S("0x88695d994d63a64435d3ee17556a65d22c06051255988c6b4979285b3452d474");  // 5773551
@@ -389,6 +398,7 @@ public:
         consensus.nStakeMinAge = 8 * 60 * 60; // 8 hours
         consensus.nStakeMaxAge = 45 * 24 *  60 * 60; // 45 days
         consensus.nModifierInterval = 13 * 60;
+        consensus.nStakeTimestampMask = 0xf; // REP-0003: 16-second stake slots, once DEPLOYMENT_POSV3 activates
 
         consensus.nRuleChangeActivationThreshold = 1815; // 90% of 2016
         consensus.nMinerConfirmationWindow = 2016; // nPowTargetTimespan / nPowTargetSpacing
@@ -422,6 +432,14 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay
+
+        // REP-0003: PoSV3 stake-timestamp hardening. Integrated dark - the testnet
+        // burn-in window is set in its own change alongside the mainnet schedule.
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].min_activation_height = 0; // No activation delay
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].lockinontimeout = true; // REP-0002 BIP8 backstop
 
         consensus.nMinimumChainWork = uint256S("000000000000000000000000000000000000000000000000007bc3a45e3a0144");
         consensus.defaultAssumeValid = uint256S("0xe575572a090c0f8d8a6583dc704ef318c9202941266180fb322c4037f2b7e754"); //749000
@@ -578,6 +596,13 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation for NEVER_ACTIVE
 
+        // REP-0003: PoSV3 stake-timestamp hardening. Signet configures no PoS
+        // parameters, so nStakeTimestampMask stays at its default of 0 here.
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].min_activation_height = 0; // No activation for NEVER_ACTIVE
+
         pchMessageStart[0] = 0xfb;
         pchMessageStart[1] = 0xc0;
         pchMessageStart[2] = 0xb6;
@@ -659,6 +684,7 @@ public:
         consensus.nStakeMinAge = 10;    // 10 seconds (very fast for testing)
         consensus.nStakeMaxAge = 45 * 24 * 60 * 60; // 45 days (same as mainnet)
         consensus.nModifierInterval = 60; // 1 minute (vs 13 minutes on mainnet) for fast testing
+        consensus.nStakeTimestampMask = 0xf; // REP-0003: 16-second stake slots, once DEPLOYMENT_POSV3 activates
 
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
@@ -688,6 +714,13 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = 0; // Can start signaling immediately
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation for NEVER_ACTIVE
+        // REP-0003: PoSV3 stake-timestamp hardening. Left NEVER_ACTIVE so the mask and
+        // the tightened drift bound do not apply to the whole functional suite; the
+        // feature_posv3_* tests opt in with -vbparams=posv3:<start>:<timeout>.
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POSV3].min_activation_height = 0; // No activation for NEVER_ACTIVE
 
         consensus.nMinimumChainWork = uint256{}; // Regtest: accept any chainwork for testing
         consensus.defaultAssumeValid = uint256{}; // Regtest: always validate for testing
