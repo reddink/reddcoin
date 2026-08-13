@@ -3374,8 +3374,27 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
     if (block.GetBlockTime() <= pindexPrev->GetMedianTimePast())
         return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "time-too-old", "block's timestamp is too early");
 
+    // REP-0003: once PoSV3 is active, quantise the stake timestamp and cut the
+    // future-drift allowance. Together these leave at most one legal future slot
+    // per tip, which collapses the grinding surface and the median-lockout vector.
+    //
+    // Both rules belong here rather than in CheckBlockHeader: only this function
+    // receives pindexPrev and can therefore consult the deployment at all. Because
+    // nTime is a header field, checking it here also covers the headers-first path
+    // and runs ahead of any kernel or signature work on a full block, which is what
+    // makes a mis-masked block cheap to reject.
+    //
+    // The PoS-era test is deliberately height-based. CBlockHeader::IsProofOfStake()
+    // would compile here but only reports nVersion > POW_BLOCK_VERSION, and the
+    // version floor that would make that meaningful is not checked until below.
+    const bool posv3_active = IsPoSEraBlock(pindexPrev, consensusParams) &&
+                              IsPoSV3Active(pindexPrev, consensusParams);
+
+    if (posv3_active && (block.GetBlockTime() & consensusParams.nStakeTimestampMask) != 0)
+        return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "time-not-masked", "block timestamp not on a stake-mask boundary");
+
     // Check timestamp
-    if (block.GetBlockTime() > nAdjustedTime + MAX_FUTURE_BLOCK_TIME)
+    if (block.GetBlockTime() > nAdjustedTime + (posv3_active ? MAX_FUTURE_BLOCK_TIME_POSV3 : MAX_FUTURE_BLOCK_TIME))
         return state.Invalid(BlockValidationResult::BLOCK_TIME_FUTURE, "time-too-new", "block timestamp too far in the future");
 
     // Reject blocks with outdated version
