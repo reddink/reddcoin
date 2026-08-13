@@ -138,4 +138,62 @@ BOOST_AUTO_TEST_CASE(coinstake_timestamp_equality_unchanged)
     BOOST_CHECK(CheckCoinStakeTimestamp(1793318401, 1793318401));
 }
 
+//! REP-0003 §10: GetPoSVKernelPS estimates network weight assuming a staker can
+//! try one kernel per weight unit per wall-second. Under a wider slot it gets one
+//! try per slot and difficulty retargets down to hold the block spacing, so the
+//! raw estimate reads a slot too low and must be scaled back up.
+//!
+//! This cannot be covered from a functional test: on regtest the estimate is a
+//! fraction of 1 and getstakinginfo casts it to uint64_t, so netstakeweight reads
+//! 0 with or without the correction.
+namespace {
+//! A PoS tip. CBlockIndex::IsProofOfStake() is nNonce == 0 (chain.h:234), and the
+//! height has to clear nLastPowHeight or GetPoSVKernelPS reports nothing at all.
+void FillPoSTip(CBlockIndex& index, const Consensus::Params& params)
+{
+    index.nHeight = params.nLastPowHeight + 111;
+    index.nBits = 0x1d00ffff;   // difficulty exactly 1
+    index.nNonce = 0;
+}
+
+double UnscaledKernelPS(const CBlockIndex& index, const Consensus::Params& params)
+{
+    return GetDifficulty(&index) * 4294967296.0 / params.nPowTargetSpacing;
+}
+
+struct RegtestPoSV3Off : public BasicTestingSetup {
+    RegtestPoSV3Off() : BasicTestingSetup(CBaseChainParams::REGTEST) {}
+};
+
+struct RegtestPoSV3On : public BasicTestingSetup {
+    RegtestPoSV3On()
+        : BasicTestingSetup(CBaseChainParams::REGTEST, {"-vbparams=posv3:-1:9999999999"}) {}
+};
+} // namespace
+
+BOOST_FIXTURE_TEST_CASE(kernel_ps_unscaled_while_inactive, RegtestPoSV3Off)
+{
+    const Consensus::Params& params = Params().GetConsensus();
+    CBlockIndex index;
+    FillPoSTip(index, params);
+
+    BOOST_CHECK(!IsPoSV3Active(&index, params));
+    BOOST_CHECK_CLOSE(GetPoSVKernelPS(&index), UnscaledKernelPS(index, params), 1e-9);
+}
+
+BOOST_FIXTURE_TEST_CASE(kernel_ps_scaled_by_slot_when_active, RegtestPoSV3On)
+{
+    const Consensus::Params& params = Params().GetConsensus();
+    CBlockIndex index;
+    FillPoSTip(index, params);
+
+    BOOST_CHECK(IsPoSV3Active(&index, params));
+    const double unscaled = UnscaledKernelPS(index, params);
+    const double expected = unscaled * (params.nStakeTimestampMask + 1);
+    BOOST_CHECK_CLOSE(GetPoSVKernelPS(&index), expected, 1e-9);
+    // Scaled up, not down. Dividing here, as an earlier draft of the REP said to,
+    // would report 1/256 of the true weight once expectedtime compounds it.
+    BOOST_CHECK_GT(GetPoSVKernelPS(&index), unscaled);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

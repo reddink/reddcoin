@@ -8,6 +8,7 @@
 #include <chainparams.h>
 #include <coins.h>
 #include <consensus/validation.h>
+#include <deploymentstatus.h>
 #include <hash.h>
 #include <node/blockstorage.h>
 #include <node/transaction.h>
@@ -622,5 +623,16 @@ double GetPoSVKernelPS(const CBlockIndex* blockindex)
         return 0;
 
     double dStakeKernelsTriedAvg = GetDifficulty(blockindex) * 4294967296.0; // 2^32
-    return dStakeKernelsTriedAvg / params.nPowTargetSpacing;
+    double result = dStakeKernelsTriedAvg / params.nPowTargetSpacing;
+
+    // REP-0003: the estimate above assumes a staker can try one kernel per weight
+    // unit per wall-second. Once PoSV3 is active it may only try one timestamp per
+    // (nStakeTimestampMask + 1) seconds, so difficulty retargets down by roughly
+    // that factor to hold the same block spacing. Scale back up, or the reported
+    // network weight understates the real one by a whole slot, and getstakinginfo's
+    // expectedtime (derived from this) comes out proportionally short.
+    if (IsPoSV3Active(blockindex, params))
+        result *= params.nStakeTimestampMask + 1;
+
+    return result;
 }
