@@ -1213,8 +1213,14 @@ static RPCHelpMan getblocktemplate()
     CHECK_NONFATAL(pindexPrev);
     CBlock* pblock = &pblocktemplate->block; // pointer for convenience
 
-    // Update nTime
-    UpdateTime(pblock, consensusParams, pindexPrev);
+    // Update nTime. A PoS block's time is pinned to its coinstake timestamp by
+    // BlockAssembler::CreateNewBlock, and CheckCoinStakeTimestamp requires the two
+    // to stay equal, so bumping it here would invalidate the template. Under
+    // REP-0003 it would also knock the time off its stake-mask boundary, since the
+    // coinstake is deliberately quantised down to a slot and so is normally a few
+    // seconds behind the wall clock that UpdateTime would advance it to.
+    if (!pblock->IsProofOfStake())
+        UpdateTime(pblock, consensusParams, pindexPrev);
     pblock->nNonce = 0;
 
     // NOTE: If at some point we support pre-segwit miners post-segwit-activation, this needs to take segwit support into consideration
